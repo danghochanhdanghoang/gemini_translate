@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "Gemini Sub Translator",
+  "version": "1.0",
+  "description": "Bấm để chụp ảnh phim và dịch phụ đề bằng Gemini",
+  "permissions": ["activeTab", "scripting", "storage"],
+  "host_permissions": ["<all_urls>"],
+  "action": {
+    "default_title": "Bấm để dịch phụ đề"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "options_page": "options.html"
+}
