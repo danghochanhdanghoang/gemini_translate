@@ -1,48 +1,121 @@
+// Khi bấm vào icon trên thanh công cụ
 chrome.action.onClicked.addListener(async (tab) => {
-  // Lấy API key đã lưu
   const data = await chrome.storage.local.get(['geminiApiKey']);
   if (!data.geminiApiKey) {
-    chrome.runtime.openOptionsPage(); // Mở trang cài đặt nếu chưa có key
+    chrome.runtime.openOptionsPage(); 
     return;
   }
 
-  // Tiêm script giao diện vào tab phim đang mở
   await chrome.scripting.executeScript({
     target: { tabId: tab.id },
     files: ['content.js']
   });
 
-  // Chụp ảnh màn hình hiện tại
-  const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'jpeg', quality: 50 });
-  
-  // Gọi hàm gửi ảnh lên Gemini
-  callGemini(data.geminiApiKey, dataUrl, tab.id);
+  chrome.tabs.sendMessage(tab.id, { action: "triggerFromIcon" });
 });
 
-async function callGemini(apiKey, imageBase64, tabId) {
-  // Cắt bỏ phần tiền tố data:image/jpeg;base64,
-  const base64Data = imageBase64.split(',')[1];
+// Lắng nghe lệnh từ phím tắt (Alt+S / F2) hoặc sau khi cắt ảnh xong
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg.action === "requestRawScreenshot") {
+    chrome.tabs.captureVisibleTab(sender.tab.windowId, { format: 'jpeg', quality: 60 }, (dataUrl) => {
+      sendResponse({ dataUrl: dataUrl });
+    });
+    return true; // Giữ kết nối bất đồng bộ để trả ảnh về
+  }
+
+  if (msg.action === "translateCroppedImage") {
+    chrome.storage.local.get(['geminiApiKey'], (data) => {
+      if (!data.geminiApiKey) {
+        chrome.runtime.openOptionsPage();
+        return;
+      }
+      callGeminiUltraFast(data.geminiApiKey, msg.base64Data, sender.tab.id);
+    });
+  }
+});
+
+// Biến ghi nhớ mô hình chạy thành công để các lần bấm sau không mất công dò lại (0 giây chờ đợi)
+let workingModel = null;
+
+async function callGeminiUltraFast(apiKeyRaw, base64Data, tabId) {
+  const apiKey = apiKeyRaw.trim();
   
-  const prompt = "Đây là ảnh chụp màn hình một bộ phim. Hãy tìm câu phụ đề tiếng Anh trong ảnh. Sau đó dịch sang tiếng Việt, cung cấp phiên âm (IPA) các từ khó và giải thích tại sao nhân vật dùng từ đó trong hoàn cảnh của bức ảnh. Trình bày cực kỳ ngắn gọn.";
+  const prompt = "Đọc câu phụ đề tiếng Anh trong ảnh. Trả lời cực ngắn gọn:\n* **Phụ đề:**\n* **Dịch:**\n* **IPA:** (từ khó)\n* **Ngữ cảnh:** (1 câu thật ngắn)";
   
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
   const payload = {
-    contents: [{
-      parts: [
-        { text: prompt },
-        { inline_data: { mime_type: "image/jpeg", data: base64Data } }
+    "contents": [{
+      "parts": [
+        { "text": prompt },
+        { "inline_data": { "mime_type": "image/jpeg", "data": base64Data } }
       ]
-    }]
+    }],
+    "generationConfig": {
+      "temperature": 0.1
+    }
   };
 
-  try {
-    const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-    const result = await res.json();
-    const text = result.candidates[0].content.parts[0].text;
-    
-    // Gửi kết quả về trang web để hiển thị
-    chrome.tabs.sendMessage(tabId, { action: "showResult", text: text });
-  } catch (e) {
-    chrome.tabs.sendMessage(tabId, { action: "showError", text: e.toString() });
+  // Danh sách đúng các cấu hình Gemini hiện có của bạn (ưu tiên bản 3.5 Flash-Lite nhanh nhất lên đầu)
+  const defaultModels = [
+    "models/gemini-3.5-flash-lite",
+    "models/gemini-3.8-flash",
+    "models/gemini-3.1-pro"
+  ];
+
+  // Nếu đã biết mô hình nào chạy mượt ở lần trước, đưa nó lên vị trí số 1 để chạy thẳng luôn!
+  const modelsToTry = workingModel 
+    ? [workingModel, ...defaultModels.filter(m => m !== workingModel)]
+    : defaultModels;
+
+  let lastError = "";
+
+  for (const modelName of modelsToTry) {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/${modelName}:generateContent?key=${apiKey}`;
+      const res = await fetch(url, { 
+        method: "POST", 
+        headers: { "Content-Type": "application/json" }, 
+        body: JSON.stringify(payload) 
+      });
+      
+      const result = await res.json();
+      
+      if (res.ok && result.candidates && result.candidates.length > 0) {
+        workingModel = modelName; // Lưu lại mô hình thành công cho các lần bấm sau
+        const text = result.candidates[0].content.parts[0].text;
+        chrome.tabs.sendMessage(tabId, { action: "showResult", text: text });
+        return;
+      } else {
+        lastError = result.error?.message || res.statusText;
+      }
+    } catch (e) {
+      lastError = e.toString();
+    }
   }
+
+  // Cơ chế dự phòng thông minh: Nếu Google đặt tên mã nội bộ khác (ví dụ có thêm đuôi -preview), tự động lấy tên chuẩn từ hệ thống
+  try {
+    const listRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+    const listData = await listRes.json();
+    if (listData.models) {
+      const fastModel = listData.models.find(m => 
+        m.supportedGenerationMethods?.includes("generateContent") && m.name.includes("flash")
+      );
+      if (fastModel) {
+        workingModel = fastModel.name; // Nhớ luôn tên chuẩn này
+        const url = `https://generativelanguage.googleapis.com/v1beta/${workingModel}:generateContent?key=${apiKey}`;
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        const result = await res.json();
+        if (res.ok && result.candidates?.length > 0) {
+          chrome.tabs.sendMessage(tabId, { action: "showResult", text: result.candidates[0].content.parts[0].text });
+          return;
+        }
+      }
+    }
+  } catch (e) {}
+
+  chrome.tabs.sendMessage(tabId, { action: "showError", text: "Lỗi: " + lastError });
 }
