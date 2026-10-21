@@ -172,19 +172,19 @@ window.triggerSubTranslate = async function() {
   }
 };
 
-// 5. Cài đặt phím bấm nhanh bằng 1 chữ cái (Ví dụ: phím Q)
+// 5. Cài đặt phím bấm nhanh bằng phím M
 if (!window.hasGeminiSubInit) {
   window.hasGeminiSubInit = true;
 
   window.addEventListener('keydown', function(e) {
-    // Không kích hoạt nếu đang gõ bình luận
+    // Không kích hoạt nếu đang gõ bình luận hoặc chat
     const activeEl = document.activeElement;
     if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.isContentEditable)) {
       return;
     }
 
-    // Bạn có thể đổi chữ 'KeyQ' thành chữ cái khác tùy ý (ví dụ: 'KeyZ', 'KeyE')
-    if (e.code === 'KeyQ') {
+    // Đã đổi thành KeyM
+    if (e.code === 'KeyM') {
       e.preventDefault();
       e.stopPropagation();
       window.triggerSubTranslate();
