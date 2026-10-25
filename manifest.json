@@ -6,10 +6,17 @@
   "permissions": ["activeTab", "scripting", "storage"],
   "host_permissions": ["<all_urls>"],
   "action": {
-    "default_title": "Bấm để dịch phụ đề"
+    "default_title": "Dịch phụ đề"
   },
+  "options_page": "options.html",
   "background": {
     "service_worker": "background.js"
   },
-  "options_page": "options.html"
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
 }
