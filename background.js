@@ -40,7 +40,7 @@ let workingModel = null;
 async function callGeminiUltraFast(apiKeyRaw, base64Data, tabId) {
   const apiKey = apiKeyRaw.trim();
   
-  const prompt = "Đọc câu phụ đề tiếng Anh trong ảnh. Trả lời cực ngắn gọn:\n* **Phụ đề:**\n* **Dịch:**\n* **IPA:** (từ khó)\n* **Ngữ cảnh:** (1 câu thật ngắn)";
+  const prompt = "Đọc câu phụ đề tiếng Anh trong ảnh. Trả lời cực ngắn gọn theo đúng mẫu:\n* **Phụ đề:**\n* **Dịch:**\n* **Từ vựng & IPA:**\n  - từ_quan_trọng: /IPA/ (từ loại) - nghĩa tiếng Việt ngắn gọn\n* **Cụm từ liên quan:** (cụm từ ghép/collocation trong câu hoặc mở rộng + nghĩa)\n* **Ngữ cảnh:** (1 câu thật ngắn)";
   
   const payload = {
     "contents": [{
